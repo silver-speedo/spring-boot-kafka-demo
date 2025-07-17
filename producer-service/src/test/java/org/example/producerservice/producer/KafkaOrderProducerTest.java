@@ -36,7 +36,7 @@ class KafkaOrderProducerTest {
 
   @Test
   @DisplayName("Sending async should return true when Kafka send succeeds")
-  void sendAsyncShouldReturnTrueWhenKafkaSendSucceeds() throws Exception {
+  void sendAsyncShouldReturnTrueWhenKafkaSendSucceeds() {
     CanonicalOrder order =
         new CanonicalOrder("ORD-001", "CUST-001", Instant.now(), "PENDING", List.of(), null, 1);
 
@@ -55,7 +55,7 @@ class KafkaOrderProducerTest {
 
   @Test
   @DisplayName("Send async should return false when Kafka send fails")
-  void sendAsyncShouldRetryAndFailWhenKafkaSendFails() throws Exception {
+  void sendAsyncShouldRetryAndFailWhenKafkaSendFails() {
     CanonicalOrder order =
         new CanonicalOrder("ORD-002", "CUST-002", Instant.now(), "PENDING", List.of(), null, 1);
 

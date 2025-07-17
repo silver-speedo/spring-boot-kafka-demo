@@ -29,7 +29,7 @@ public record CanonicalOrder(
       @NotBlank(message = "SKU must not be blank") String sku,
       @NotBlank(message = "Name must not be blank") String name,
       @Min(value = 1, message = "Quantity must be at least 1") int quantity,
-      @DecimalMin(value = "0.01", inclusive = true, message = "Unit price must be at least 0.01")
+      @DecimalMin(value = "0.01", message = "Unit price must be at least 0.01")
           double unitPrice) {}
 
   public record ShippingAddress(
