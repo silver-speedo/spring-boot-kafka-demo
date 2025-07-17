@@ -1,0 +1,123 @@
+version: '3.8'
+
+services:
+  kafka:
+    image: confluentinc/cp-kafka:7.6.0
+    ports:
+      - "9092:9092"
+      - "9093:9093"
+    environment:
+      KAFKA_PROCESS_ROLES: "broker,controller"
+      KAFKA_NODE_ID: 1
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CONTROLLER_QUORUM_VOTERS: "1@kafka:9093"
+      KAFKA_LOG_DIRS: /tmp/kraft-combined-logs
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+    command:
+      - bash
+      - -c
+      - |
+        CLUSTER_ID=$$(kafka-storage random-uuid) && \
+        echo "Using Cluster ID: $$CLUSTER_ID" && \
+        echo "process.roles=broker,controller
+        node.id=1
+        controller.listener.names=CONTROLLER
+        listeners=PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093
+        advertised.listeners=PLAINTEXT://kafka:9092
+        log.dirs=/tmp/kraft-combined-logs
+        controller.quorum.voters=1@kafka:9093
+        auto.create.topics.enable=true" > /tmp/kraft-config.properties && \
+        kafka-storage format --ignore-formatted \
+        --cluster-id $$CLUSTER_ID \
+        --config /tmp/kraft-config.properties && \
+        /etc/confluent/docker/run
+    networks:
+      - app-network
+
+  mysql:
+    image: mysql:8.0
+    container_name: mysql-container
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpassword
+      MYSQL_DATABASE: orders
+      MYSQL_USER: myuser
+      MYSQL_PASSWORD: mypassword
+    healthcheck:
+      test: [ "CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "${MYSQL_USER}", "-p${MYSQL_PASSWORD}" ]
+      interval: 6s
+      timeout: 1s
+      retries: 5
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+      - ./.docker/mysql-init:/docker-entrypoint-initdb.d
+    networks:
+      - app-network
+
+  producer-service:
+    build:
+      context: .
+      dockerfile: producer-service/Dockerfile
+    depends_on:
+      - kafka
+    environment:
+      SPRING_PROFILES_ACTIVE: dev
+      KAFKA_TOPIC_NAME: orders
+      KAFKA_PARTITION_COUNT: 12
+      RATE_LIMIT_PER_MINUTE: 1000
+      SPRING_KAFKA_BOOTSTRAP-SERVERS: kafka:9092
+      SPRING_KAFKA_ADMIN_PROPERTIES_BOOTSTRAP_SERVERS: kafka:9092
+      SPRING_KAFKA_PRODUCER_RETRIES: 3
+      SPRING_KAFKA_PRODUCER_PROPERTIES_RETRY_BACKOFF_MS: 100
+      SPRING_KAFKA_PRODUCER_PROPERTIES_RETRY_BACKOFF_MAX_MS: 300
+      SPRING_KAFKA_PRODUCER_PROPERTIES_DELIVERY_TIMEOUT_MS: 120000
+      THREAD_CORE-POOL-SIZE: 32
+      THREAD_MAX-POOL-SIZE: 128
+      THREAD_QUEUE-CAPACITY: 64
+      THREAD_KEEP-ALIVE-SECONDS: 30
+      THREAD_NAME-PREFIX: producer-thread-
+    ports:
+      - "8081:8080"
+    networks:
+      - app-network
+
+  consumer-service:
+    build:
+      context: .
+      dockerfile: consumer-service/Dockerfile
+    depends_on:
+      mysql:
+        condition: service_healthy
+      kafka:
+        condition: service_started
+    environment:
+      SPRING_PROFILES_ACTIVE: dev
+      KAFKA_TOPIC_NAME: orders
+      KAFKA_CONSUMER_COUNT: 12
+      SPRING_KAFKA_BOOTSTRAP-SERVERS: kafka:9092
+      SPRING_KAFKA_CONSUMER_GROUP-ID: consumer-group-1
+      SPRING_DATASOURCE_USERNAME: myuser
+      SPRING_DATASOURCE_PASSWORD: mypassword
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql-container:3306/orders
+      THREAD_CORE-POOL-SIZE: 32
+      THREAD_MAX-POOL-SIZE: 128
+      THREAD_QUEUE-CAPACITY: 64
+      THREAD_KEEP-ALIVE-SECONDS: 30
+      THREAD_NAME-PREFIX: consumer-thread-
+    ports:
+      - "8082:8080"
+    networks:
+      - app-network
+
+networks:
+  app-network:
+    driver: bridge
+
+volumes:
+  mysql-data:
